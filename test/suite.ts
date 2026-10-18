@@ -73,7 +73,7 @@ async function runTestSuite() {
 
   // Test 4: Garment Consistency Engine
   console.log('\n--- 4. Testing Garment Consistency Engine ---');
-  const tryOnConsistency = garmentConsistencyEngine.evaluateConsistency({
+  const tryOnConsistency = await garmentConsistencyEngine.evaluateConsistency({
     taskType: 'try_on',
     category: 'suit',
   });

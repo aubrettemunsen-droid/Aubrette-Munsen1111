@@ -20,9 +20,12 @@ export interface QualityMetrics {
   garmentConsistencyScore: number; // 0 - 100
   identityPreservationScore?: number; // 0 - 100
   nonTargetDeltaPercent?: number; // percentage of drift in non-target pixels
+  targetColorDeltaE?: number; // measured color shift in target region
   texturePreservationScore?: number; // 0 - 100
+  evaluationMethod?: string;
   notes: string[];
   passed: boolean;
+  needsHumanReview?: boolean;
 }
 
 export interface TaskRecord {
@@ -205,14 +208,28 @@ export interface OpenSourceModelSpec {
 export interface BenchmarkEvaluationRecord {
   id: string;
   timestamp: number;
+  testMode: 'real' | 'mock' | 'demo';
   garmentName: string;
   engineUsed: string;
+  inputAssetId?: string;
+  outputAssetId?: string;
+  modelName?: string;
+  modelVersion?: string;
+  taskParams?: Record<string, any>;
   latencyMs: number;
   estimatedCostUsd: number;
   nonTargetDriftPercent: number;
   garmentConsistencyScore: number;
   textureRetentionScore: number;
+  evaluationMethod:
+    | 'pixel_buffer_audit'
+    | 'cielab_deltaE'
+    | 'structural_ssim'
+    | 'attribute_checklist'
+    | 'synthetic_benchmark_demo'
+    | 'human_audit_required';
   passStatus: boolean;
+  status: 'completed' | 'failed' | 'not_run' | 'needs_human_review';
   notes: string[];
 }
 

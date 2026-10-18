@@ -399,11 +399,12 @@ app.post('/api/designer/render-candidate', async (req: Request, res: Response) =
       return;
     }
 
-    const dataUrl = await renderCandidateImage({
+    const renderRes = await renderCandidateImage({
       id: candidate.id,
       prompt: candidate.prompt,
       spec: candidate.spec,
     });
+    const dataUrl = renderRes.dataUrl;
 
     const assetId = `asset_design_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     assetStore.save({
@@ -417,12 +418,17 @@ app.post('/api/designer/render-candidate', async (req: Request, res: Response) =
 
     candidate.imageUrl = dataUrl;
     candidate.assetId = assetId;
+    candidate.consistencyScore = renderRes.consistencyScore;
+    candidate.auditNotes = renderRes.auditNotes;
     designerStore.saveCandidate(candidate);
 
     res.json({
       candidateId: candidate.id,
       imageUrl: dataUrl,
       assetId,
+      consistencyScore: renderRes.consistencyScore,
+      auditNotes: renderRes.auditNotes,
+      verificationPassed: renderRes.verificationPassed,
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Failed to render candidate.' });

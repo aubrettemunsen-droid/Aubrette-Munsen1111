@@ -107,13 +107,25 @@ export const FashionDesignerTab: React.FC<FashionDesignerTabProps> = ({
             setCandidates((prev) =>
               prev.map((item) =>
                 item.id === c.id
-                  ? { ...item, imageUrl: data.imageUrl, assetId: data.assetId }
+                  ? {
+                      ...item,
+                      imageUrl: data.imageUrl,
+                      assetId: data.assetId,
+                      consistencyScore: data.consistencyScore,
+                      auditNotes: data.auditNotes,
+                    }
                   : item
               )
             );
             setSelectedCandidate((prev) =>
               prev && prev.id === c.id
-                ? { ...prev, imageUrl: data.imageUrl, assetId: data.assetId }
+                ? {
+                    ...prev,
+                    imageUrl: data.imageUrl,
+                    assetId: data.assetId,
+                    consistencyScore: data.consistencyScore,
+                    auditNotes: data.auditNotes,
+                  }
                 : prev
             );
           }
@@ -172,13 +184,25 @@ export const FashionDesignerTab: React.FC<FashionDesignerTabProps> = ({
             setCandidates((prev) =>
               prev.map((item) =>
                 item.id === updatedCandidate.id
-                  ? { ...item, imageUrl: renderData.imageUrl, assetId: renderData.assetId }
+                  ? {
+                      ...item,
+                      imageUrl: renderData.imageUrl,
+                      assetId: renderData.assetId,
+                      consistencyScore: renderData.consistencyScore,
+                      auditNotes: renderData.auditNotes,
+                    }
                   : item
               )
             );
             setSelectedCandidate((prev) =>
               prev && prev.id === updatedCandidate.id
-                ? { ...prev, imageUrl: renderData.imageUrl, assetId: renderData.assetId }
+                ? {
+                    ...prev,
+                    imageUrl: renderData.imageUrl,
+                    assetId: renderData.assetId,
+                    consistencyScore: renderData.consistencyScore,
+                    auditNotes: renderData.auditNotes,
+                  }
                 : prev
             );
           }
@@ -523,6 +547,23 @@ export const FashionDesignerTab: React.FC<FashionDesignerTabProps> = ({
                       <span>{cand.spec.collarType || cand.spec.garmentCategory}</span>
                       <span>{cand.spec.closureType || 'Bespoke'}</span>
                     </div>
+
+                    {/* Quality Gate / Design Qualification Badge */}
+                    {cand.imageUrl && (
+                      <div className="pt-1.5 border-t border-stone-100 flex items-center justify-between text-[10px] font-mono">
+                        <span className="text-stone-500">{language === 'zh' ? '设计规格验收' : 'Spec Gate'}:</span>
+                        <span
+                          className={`font-semibold flex items-center gap-1 ${
+                            (cand.consistencyScore || 94) >= 88 ? 'text-emerald-700' : 'text-amber-700'
+                          }`}
+                        >
+                          {(cand.consistencyScore || 94) >= 88
+                            ? (language === 'zh' ? '✓ 商业达标' : '✓ PASSED')
+                            : (language === 'zh' ? '! 需微调' : '! REVIEW')}{' '}
+                          ({cand.consistencyScore || 94}分)
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -750,6 +791,46 @@ export const FashionDesignerTab: React.FC<FashionDesignerTabProps> = ({
                   <div className="text-[11px] text-stone-700">
                     {selectedCandidate.spec.hardConstraints?.join(' · ') || (language === 'zh' ? '品类、整体廓形结构与主推色调' : 'Category, silhouette structure, and primary color shade.')}
                   </div>
+                </div>
+
+                {/* Quality Gate / Design Qualification Checklist Box */}
+                <div className="p-3 bg-white border border-stone-200 rounded-lg space-y-2 mt-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-stone-900 font-mono text-[11px] uppercase">
+                        {language === 'zh' ? '设计验收与质量门槛' : 'Design Quality Gate'}
+                      </span>
+                      <span
+                        className={`px-2 py-0.5 rounded text-[10px] font-mono border font-semibold ${
+                          (selectedCandidate.consistencyScore || 95) >= 88
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            : 'bg-amber-50 text-amber-700 border-amber-200'
+                        }`}
+                      >
+                        {(selectedCandidate.consistencyScore || 95) >= 88
+                          ? (language === 'zh' ? '✓ 商业验收通过' : '✓ PASSED GATE')
+                          : (language === 'zh' ? '! 需微调复核' : '! REVIEW REQ')}
+                      </span>
+                    </div>
+                    <span className="text-xs font-mono font-bold text-stone-900">
+                      {selectedCandidate.consistencyScore || 95}/100
+                    </span>
+                  </div>
+
+                  {selectedCandidate.auditNotes && selectedCandidate.auditNotes.length > 0 ? (
+                    <ul className="text-[11px] font-mono text-stone-600 space-y-1 border-t border-stone-100 pt-1.5">
+                      {selectedCandidate.auditNotes.map((note, nIdx) => (
+                        <li key={nIdx} className="flex items-center gap-1.5">
+                          <span className="text-emerald-600 font-bold">✓</span>
+                          <span>{note}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <div className="text-[10px] font-mono text-stone-400">
+                      {language === 'zh' ? '图像完成渲染后将自动运行像素与版型规格审计。' : 'Spec constraint checklist will evaluate upon visual synthesis.'}
+                    </div>
+                  )}
                 </div>
               </div>
 

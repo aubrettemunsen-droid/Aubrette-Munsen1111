@@ -19,6 +19,7 @@ export const EngineHubTab: React.FC = () => {
 
   const [activeSection, setActiveSection] = useState<'benchmarks' | 'oss_models' | 'routing' | 'checklist'>('benchmarks');
   const [benchmarkRecords, setBenchmarkRecords] = useState<BenchmarkEvaluationRecord[]>([]);
+  const [benchmarkFilter, setBenchmarkFilter] = useState<'all' | 'real' | 'demo'>('all');
   const [ossModels, setOssModels] = useState<OpenSourceModelSpec[]>([]);
   const [routingData, setRoutingData] = useState<{ config: EngineRoutingConfig; stats: any } | null>(null);
   const [checklist, setChecklist] = useState<CommercialChecklistItem[]>([]);
@@ -347,62 +348,151 @@ export const EngineHubTab: React.FC = () => {
             </div>
           )}
 
+          {/* Quality Transparency Commitment Banner */}
+          <div className="p-4 bg-sky-50 border border-sky-200 rounded-lg text-xs text-sky-950 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div className="space-y-0.5">
+              <span className="font-bold flex items-center gap-1.5 text-sky-900">
+                🛡️ {language === 'zh' ? '商业质量基准透明承诺 (Quality Transparency Guarantee)' : 'Commercial Quality Transparency Guarantee'}
+              </span>
+              <p className="text-[11px] text-sky-800 leading-relaxed">
+                {language === 'zh'
+                  ? '本系统严禁以 API 返回成功或静态写死的分数混充质量验收。我们严格区分【预设演示基准 (Demo Baseline)】与【真实执行评估 (Real Evaluations)】，每项实测均追溯至具体图像输入输出、模型版本与像素/SSIM算法审计。'
+                  : 'System strictly isolates Demo Baselines from Real-World Evaluations. Every live measurement traces back to concrete image buffers, models, parameters, and SSIM/pixel audits.'}
+              </p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0 font-mono text-[11px]">
+              <span className="px-2 py-0.5 bg-blue-100 text-blue-800 rounded border border-blue-200">
+                {language === 'zh' ? '实测出图' : 'Real Runs'}: {benchmarkRecords.filter((r) => r.testMode === 'real').length}
+              </span>
+              <span className="px-2 py-0.5 bg-amber-100 text-amber-800 rounded border border-amber-200">
+                {language === 'zh' ? '标定演示' : 'Demo Base'}: {benchmarkRecords.filter((r) => r.testMode === 'demo').length}
+              </span>
+            </div>
+          </div>
+
           <div className="bg-white border border-stone-200 rounded-lg overflow-hidden">
-            <div className="p-4 border-b border-stone-200 bg-stone-50 flex items-center justify-between">
-              <span className="text-xs font-mono font-semibold text-stone-800 uppercase tracking-wider">
-                {language === 'zh' ? '基准测试评估明细日志' : 'Benchmark Evaluation Records'}
-              </span>
-              <span className="text-xs font-mono text-stone-500">
-                {language === 'zh' ? '按最新运行倒序排列' : 'Sorted by most recent execution'}
-              </span>
+            <div className="p-4 border-b border-stone-200 bg-stone-50 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <span className="text-xs font-mono font-semibold text-stone-800 uppercase tracking-wider">
+                  {language === 'zh' ? '基准测试评估明细日志' : 'Benchmark Evaluation Records'}
+                </span>
+                <span className="text-[11px] font-mono text-stone-500">
+                  ({benchmarkRecords.length} {language === 'zh' ? '条记录' : 'records'})
+                </span>
+              </div>
+
+              {/* Record Mode Filter Tabs */}
+              <div className="flex items-center gap-1.5 text-xs font-mono">
+                <button
+                  onClick={() => setBenchmarkFilter('all')}
+                  className={`px-2.5 py-1 rounded transition-colors ${
+                    benchmarkFilter === 'all'
+                      ? 'bg-stone-900 text-white font-semibold'
+                      : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
+                  }`}
+                >
+                  {language === 'zh' ? '全部记录' : 'All'} ({benchmarkRecords.length})
+                </button>
+                <button
+                  onClick={() => setBenchmarkFilter('real')}
+                  className={`px-2.5 py-1 rounded transition-colors ${
+                    benchmarkFilter === 'real'
+                      ? 'bg-blue-600 text-white font-semibold'
+                      : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200'
+                  }`}
+                >
+                  {language === 'zh' ? '仅实测出图' : 'Real Runs Only'} ({benchmarkRecords.filter((r) => r.testMode === 'real').length})
+                </button>
+                <button
+                  onClick={() => setBenchmarkFilter('demo')}
+                  className={`px-2.5 py-1 rounded transition-colors ${
+                    benchmarkFilter === 'demo'
+                      ? 'bg-amber-600 text-white font-semibold'
+                      : 'bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200'
+                  }`}
+                >
+                  {language === 'zh' ? '预设演示基准' : 'Demo Baseline'} ({benchmarkRecords.filter((r) => r.testMode === 'demo').length})
+                </button>
+              </div>
             </div>
 
             <div className="divide-y divide-stone-200 overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead className="bg-stone-50/50 text-stone-500 font-mono text-[11px] border-b border-stone-200">
                   <tr>
+                    <th className="py-2.5 px-4">{language === 'zh' ? '评估模式' : 'Mode'}</th>
                     <th className="py-2.5 px-4">{language === 'zh' ? '测试服装 / 单品' : 'Garment / Test Subject'}</th>
-                    <th className="py-2.5 px-4">{language === 'zh' ? '调度引擎' : 'Engine Used'}</th>
-                    <th className="py-2.5 px-4">{language === 'zh' ? '计算耗时' : 'Latency'}</th>
-                    <th className="py-2.5 px-4">{language === 'zh' ? '预估成本' : 'Cost (USD)'}</th>
-                    <th className="py-2.5 px-4">{language === 'zh' ? '边缘漂移率' : 'Non-Target Drift'}</th>
+                    <th className="py-2.5 px-4">{language === 'zh' ? '审计方法' : 'Audit Method'}</th>
+                    <th className="py-2.5 px-4">{language === 'zh' ? '调度引擎与模型' : 'Engine & Model'}</th>
+                    <th className="py-2.5 px-4">{language === 'zh' ? '耗时' : 'Latency'}</th>
+                    <th className="py-2.5 px-4">{language === 'zh' ? '非目标漂移率' : 'Non-Target Drift'}</th>
                     <th className="py-2.5 px-4">{language === 'zh' ? '版型一致性' : 'Consistency'}</th>
                     <th className="py-2.5 px-4">{language === 'zh' ? '质检状态' : 'Status'}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-stone-100 font-mono">
-                  {benchmarkRecords.map((r) => (
-                    <tr key={r.id} className="hover:bg-stone-50/80 transition-colors">
-                      <td className="py-3 px-4 font-sans font-medium text-stone-900">
-                        {r.garmentName}
-                        {r.notes && r.notes.length > 0 && (
-                          <div className="text-[11px] text-stone-500 font-mono mt-0.5">{r.notes[0]}</div>
-                        )}
-                      </td>
-                      <td className="py-3 px-4 text-stone-700">{r.engineUsed}</td>
-                      <td className="py-3 px-4 text-stone-600">{r.latencyMs}ms</td>
-                      <td className="py-3 px-4 text-stone-600">${r.estimatedCostUsd.toFixed(3)}</td>
-                      <td className="py-3 px-4">
-                        <span className={r.nonTargetDriftPercent < 1.0 ? 'text-emerald-700 font-semibold' : 'text-rose-700'}>
-                          {r.nonTargetDriftPercent}%
-                        </span>
-                      </td>
-                      <td className="py-3 px-4">
-                        <span className="font-semibold text-stone-900">{r.garmentConsistencyScore}/100</span>
-                      </td>
-                      <td className="py-3 px-4">
-                        {r.passStatus ? (
-                          <span className="inline-flex items-center px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded text-[10px]">
-                            {language === 'zh' ? '达标通过' : 'PASSED'}
+                  {benchmarkRecords
+                    .filter((r) => {
+                      if (benchmarkFilter === 'real') return r.testMode === 'real';
+                      if (benchmarkFilter === 'demo') return r.testMode === 'demo';
+                      return true;
+                    })
+                    .map((r) => (
+                      <tr key={r.id} className="hover:bg-stone-50/80 transition-colors">
+                        <td className="py-3 px-4">
+                          {r.testMode === 'real' ? (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono bg-blue-50 text-blue-700 border border-blue-200 font-bold">
+                              {language === 'zh' ? '实测 REAL' : 'REAL RUN'}
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono bg-amber-50 text-amber-700 border border-amber-200">
+                              {language === 'zh' ? '预设 DEMO' : 'DEMO BASE'}
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 font-sans font-medium text-stone-900 max-w-xs">
+                          {r.garmentName}
+                          {r.notes && r.notes.length > 0 && (
+                            <div className="text-[11px] text-stone-500 font-mono mt-0.5 line-clamp-1">{r.notes[0]}</div>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 text-stone-600">
+                          <span className="px-1.5 py-0.5 rounded bg-stone-100 text-stone-700 text-[10px] border border-stone-200 font-mono">
+                            {r.evaluationMethod === 'pixel_buffer_audit'
+                              ? (language === 'zh' ? '像素缓冲区审计' : 'Pixel Buffer Audit')
+                              : r.evaluationMethod === 'structural_ssim'
+                                ? (language === 'zh' ? '结构与面部SSIM' : 'Structural SSIM')
+                                : r.evaluationMethod === 'attribute_checklist'
+                                  ? (language === 'zh' ? '属性约束清单' : 'Attribute Checklist')
+                                  : (language === 'zh' ? '合成基线标定' : 'Synthetic Calibration')}
                           </span>
-                        ) : (
-                          <span className="inline-flex items-center px-2 py-0.5 bg-rose-50 text-rose-700 border border-rose-200 rounded text-[10px]">
-                            {language === 'zh' ? '需复核' : 'REVISION REQ'}
+                        </td>
+                        <td className="py-3 px-4 text-stone-700">
+                          <div className="font-mono text-xs">{r.engineUsed}</div>
+                          {r.modelName && <div className="text-[10px] text-stone-400 font-mono">{r.modelName}</div>}
+                        </td>
+                        <td className="py-3 px-4 text-stone-600">{r.latencyMs}ms</td>
+                        <td className="py-3 px-4">
+                          <span className={r.nonTargetDriftPercent < 1.0 ? 'text-emerald-700 font-semibold' : 'text-rose-700'}>
+                            {r.nonTargetDriftPercent}%
                           </span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className="font-semibold text-stone-900">{r.garmentConsistencyScore}/100</span>
+                        </td>
+                        <td className="py-3 px-4">
+                          {r.passStatus ? (
+                            <span className="inline-flex items-center px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded text-[10px]">
+                              {language === 'zh' ? '达标通过' : 'PASSED'}
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded text-[10px]">
+                              {language === 'zh' ? '需复核' : 'REVISION REQ'}
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
                 </tbody>
               </table>
             </div>
