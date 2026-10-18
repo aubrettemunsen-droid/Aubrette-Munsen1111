@@ -1,0 +1,6 @@
+{
+  "name": "Atelier AI - Commercial Fashion Intelligence & Virtual Fitting Studio",
+  "description": "Commercial-grade AI apparel editing system featuring photorealistic virtual try-on, AI fashion model generation, and precision clothing recolor with texture and specular preservation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
