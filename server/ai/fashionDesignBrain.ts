@@ -4,12 +4,13 @@ import { ai, isGeminiConfigured, parseDataUrl } from './geminiClient.ts';
 import { assetStore } from '../store/assetStore.ts';
 import { DesignCandidate, GarmentDesignSpec, DesignRevision } from '../../src/types/index.ts';
 import { evaluationSystem } from '../core/evaluationSystem.ts';
+import { designSchemaValidator, DesignSchemaValidationError } from '../core/designSchemaValidator.ts';
 
 // In-memory sessions storage for AI Fashion Designer
 const designCandidatesMap = new Map<string, DesignCandidate>();
 const revisionsHistoryMap = new Map<string, DesignRevision[]>();
 
-function withTimeout<T>(promise: Promise<T>, ms = 20000): Promise<T> {
+function withTimeout<T>(promise: Promise<T>, ms = 5000): Promise<T> {
   let timer: NodeJS.Timeout;
   const timeoutPromise = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new Error(`Timeout after ${ms}ms`)), ms);
@@ -134,6 +135,27 @@ export async function parseDesignIntent(params: {
     prompt: string;
   }>;
 }> {
+  // Schema validation layer: Check for empty userMessage before calling AI generation
+  const promptCheck = designSchemaValidator.validateUserPrompt(params.userMessage);
+  if (!promptCheck.isValid) {
+    throw new DesignSchemaValidationError(
+      promptCheck.errors[0] || 'Prompt validation failed',
+      promptCheck.issues,
+      promptCheck.emptyFields
+    );
+  }
+
+  if (params.targetCandidateSpec) {
+    const targetCheck = designSchemaValidator.validateGarmentDesignSpec(params.targetCandidateSpec, 'targetCandidateSpec');
+    if (!targetCheck.isValid) {
+      throw new DesignSchemaValidationError(
+        `目标设计规格校验失败: ${targetCheck.errors.join('; ')}`,
+        targetCheck.issues,
+        targetCheck.emptyFields
+      );
+    }
+  }
+
   if (!isGeminiConfigured) {
     console.warn('GEMINI_API_KEY is not configured on server, activating dynamic couture rules parser.');
   }
@@ -261,8 +283,25 @@ Return valid JSON conforming to the requested schema.`;
   if (responseText) {
     try {
       const parsed = JSON.parse(responseText);
-      if (parsed.candidates && parsed.candidates.length > 0) {
-        return parsed;
+      if (parsed.candidates && Array.isArray(parsed.candidates) && parsed.candidates.length > 0) {
+        // Validate each candidate to prevent empty values or missing attributes from leaking into generation
+        const validCandidates = [];
+        for (const cand of parsed.candidates) {
+          const specCheck = designSchemaValidator.validateGarmentDesignSpec(cand.spec, cand.directionTitle || 'Candidate');
+          if (specCheck.isValid && cand.prompt && cand.prompt.trim().length > 0) {
+            validCandidates.push(cand);
+          } else {
+            console.warn(`[Schema Validation] Candidate rejected due to empty/invalid fields: ${specCheck.emptyFields.join(', ')}`);
+          }
+        }
+        if (validCandidates.length > 0) {
+          return {
+            assistantResponse: parsed.assistantResponse || '设计解析完成。',
+            conflictNotice: parsed.conflictNotice || undefined,
+            suggestedRevisions: Array.isArray(parsed.suggestedRevisions) ? parsed.suggestedRevisions : [],
+            candidates: validCandidates,
+          };
+        }
       }
     } catch (e) {
       console.warn('JSON parse error from model response, activating dynamic couture rules parser:', e);
@@ -474,18 +513,24 @@ export async function renderCandidateImage(candidate: {
   auditNotes: string[];
   verificationPassed: boolean;
 }> {
+  // CRITICAL SCHEMA VALIDATION LAYER:
+  // Validate candidate schema and check for empty values before calling AI generation to prevent unintended default values.
+  designSchemaValidator.assertValidCandidateForGeneration(candidate);
+
   let dataUrl = '';
+
+  const collarStr = candidate.spec.collarType && candidate.spec.collarType.trim() ? `Collar / Lapel: ${candidate.spec.collarType.trim()}.` : '';
+  const closureStr = candidate.spec.closureType && candidate.spec.closureType.trim() ? `Closure / Buttons: ${candidate.spec.closureType.trim()}.` : '';
+  const pocketStr = candidate.spec.pocketStyle && candidate.spec.pocketStyle.trim() ? `Pocket Details: ${candidate.spec.pocketStyle.trim()}.` : '';
+  const decDetails = (candidate.spec.decorativeDetails || []).filter((d) => typeof d === 'string' && d.trim().length > 0);
+  const decStr = decDetails.length > 0 ? `Details: ${decDetails.join(', ')}.` : '';
 
   const enrichedPrompt = `Commercial Haute Couture Fashion Photography:
 Subject: ${candidate.spec.garmentCategory} designed in ${candidate.spec.designStyle} style.
 Silhouette: ${candidate.spec.silhouette}.
 Fabric & Material: ${candidate.spec.fabricAppearance}.
 Primary Color: ${candidate.spec.primaryColor}.
-${candidate.spec.collarType ? `Collar / Lapel: ${candidate.spec.collarType}.` : ''}
-${candidate.spec.closureType ? `Closure / Buttons: ${candidate.spec.closureType}.` : ''}
-${candidate.spec.pocketStyle ? `Pocket Details: ${candidate.spec.pocketStyle}.` : ''}
-${candidate.spec.decorativeDetails && candidate.spec.decorativeDetails.length > 0 ? `Details: ${candidate.spec.decorativeDetails.join(', ')}.` : ''}
-Setting: Clean luxury studio photography, elegant neutral travertine or warm grey cyclorama backdrop, soft diffused key lighting with crisp specular fabric sheen, natural cloth draping, 8k commercial catalog quality, sharp tailoring focus.`;
+${collarStr ? `${collarStr}\n` : ''}${closureStr ? `${closureStr}\n` : ''}${pocketStr ? `${pocketStr}\n` : ''}${decStr ? `${decStr}\n` : ''}Setting: Clean luxury studio photography, elegant neutral travertine or warm grey cyclorama backdrop, soft diffused key lighting with crisp specular fabric sheen, natural cloth draping, 8k commercial catalog quality, sharp tailoring focus.`;
 
   if (isGeminiConfigured) {
     try {
@@ -500,7 +545,7 @@ Setting: Clean luxury studio photography, elegant neutral travertine or warm gre
             },
           },
         }),
-        35000
+        8000
       );
 
       const parts = response.candidates?.[0]?.content?.parts;
@@ -560,6 +605,19 @@ export async function reviseDesignCandidate(params: {
   const existing = designCandidatesMap.get(params.candidateId);
   if (!existing) {
     throw new Error(`Design candidate ${params.candidateId} not found.`);
+  }
+
+  const revValidation = designSchemaValidator.validateRevisionInput({
+    candidateId: params.candidateId,
+    revisionInstruction: params.revisionInstruction,
+    existingSpec: existing.spec,
+  });
+  if (!revValidation.isValid) {
+    throw new DesignSchemaValidationError(
+      revValidation.errors[0] || 'Revision input validation failed',
+      revValidation.issues,
+      revValidation.emptyFields
+    );
   }
 
   const systemInstruction = `You are the Conversational Revision Engine of Atelier AI.
@@ -643,7 +701,7 @@ Produce the updated spec.`;
             },
           },
         }),
-        15000
+        4000
       );
 
       const parsed = JSON.parse(response.text || '{}');
@@ -711,6 +769,17 @@ Produce the updated spec.`;
 
   const newVersion = existing.version + 1;
 
+  // Clean unspecified fields and validate schema before rendering revised image
+  updatedSpec = designSchemaValidator.cleanUnspecifiedFields(updatedSpec);
+  const specCheck = designSchemaValidator.validateGarmentDesignSpec(updatedSpec, `Revision_Candidate[${existing.id}]`);
+  if (!specCheck.isValid) {
+    throw new DesignSchemaValidationError(
+      `修改后的设计规格包含空值或非法字段: ${specCheck.errors.join('; ')}`,
+      specCheck.issues,
+      specCheck.emptyFields
+    );
+  }
+
   // Render revised image and run verification
   const renderRes = await renderCandidateImage({
     id: existing.id,
@@ -770,7 +839,20 @@ export async function generateMultiViews(params: {
 }): Promise<Record<string, string>> {
   const candidate = designCandidatesMap.get(params.candidateId);
   if (!candidate || !candidate.imageUrl) {
-    throw new Error('Candidate or base image not found.');
+    throw new Error(`Candidate or base image not found for id: ${params.candidateId}`);
+  }
+
+  const mvValidation = designSchemaValidator.validateMultiViewInput({
+    candidateId: params.candidateId,
+    baseImageUrl: candidate.imageUrl,
+    viewTypes: params.viewTypes,
+  });
+  if (!mvValidation.isValid) {
+    throw new DesignSchemaValidationError(
+      mvValidation.errors[0] || 'Multi-view input validation failed',
+      mvValidation.issues,
+      mvValidation.emptyFields
+    );
   }
 
   const parsed = parseDataUrl(candidate.imageUrl);

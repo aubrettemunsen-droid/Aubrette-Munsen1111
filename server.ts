@@ -14,6 +14,10 @@ import {
   generateMultiViews,
   designerStore,
 } from './server/ai/fashionDesignBrain.ts';
+import { executeMultimodalChat } from './server/ai/multimodalChatOrchestrator.ts';
+import { designSchemaValidator, DesignSchemaValidationError } from './server/core/designSchemaValidator.ts';
+import { toolRegistry } from './server/core/toolRegistry.ts';
+import { taskOrchestrator } from './server/core/taskOrchestrator.ts';
 import { DesignCandidate } from './src/types/index.ts';
 import { openSourceRegistry } from './server/core/openSourceModelRegistry.ts';
 import { aiRoutingEngine } from './server/core/aiRoutingEngine.ts';
@@ -344,8 +348,14 @@ app.post('/api/video-status', async (req: Request, res: Response) => {
 app.post('/api/designer/chat', async (req: Request, res: Response) => {
   try {
     const { userMessage, conversationHistory, targetCandidateSpec } = req.body;
-    if (!userMessage || typeof userMessage !== 'string') {
-      res.status(400).json({ error: 'userMessage is required.' });
+    const promptCheck = designSchemaValidator.validateUserPrompt(userMessage);
+    if (!promptCheck.isValid) {
+      res.status(400).json({
+        error: promptCheck.errors[0],
+        code: 'EMPTY_FIELD_ERROR',
+        emptyFields: promptCheck.emptyFields,
+        issues: promptCheck.issues,
+      });
       return;
     }
 
@@ -380,6 +390,15 @@ app.post('/api/designer/chat', async (req: Request, res: Response) => {
       candidates: initializedCandidates,
     });
   } catch (err: any) {
+    if (err instanceof DesignSchemaValidationError) {
+      res.status(400).json({
+        error: err.message,
+        code: err.code,
+        emptyFields: err.emptyFields,
+        issues: err.issues,
+      });
+      return;
+    }
     res.status(500).json({ error: err.message || 'Designer brain intent parsing failed.' });
   }
 });
@@ -431,6 +450,15 @@ app.post('/api/designer/render-candidate', async (req: Request, res: Response) =
       verificationPassed: renderRes.verificationPassed,
     });
   } catch (err: any) {
+    if (err instanceof DesignSchemaValidationError) {
+      res.status(400).json({
+        error: err.message,
+        code: err.code,
+        emptyFields: err.emptyFields,
+        issues: err.issues,
+      });
+      return;
+    }
     res.status(500).json({ error: err.message || 'Failed to render candidate.' });
   }
 });
@@ -438,7 +466,8 @@ app.post('/api/designer/render-candidate', async (req: Request, res: Response) =
 // 18. Conversational Revision on candidate
 app.post('/api/designer/revise', async (req: Request, res: Response) => {
   try {
-    const { candidateId, revisionInstruction } = req.body;
+    const candidateId = req.body.candidateId;
+    const revisionInstruction = req.body.revisionInstruction || req.body.instruction;
     if (!candidateId || !revisionInstruction) {
       res.status(400).json({ error: 'candidateId and revisionInstruction are required.' });
       return;
@@ -451,16 +480,28 @@ app.post('/api/designer/revise', async (req: Request, res: Response) => {
 
     res.json(result);
   } catch (err: any) {
+    if (err instanceof DesignSchemaValidationError) {
+      res.status(400).json({
+        error: err.message,
+        code: err.code,
+        emptyFields: err.emptyFields,
+        issues: err.issues,
+      });
+      return;
+    }
     res.status(500).json({ error: err.message || 'Revision failed.' });
   }
 });
 
 // 19. Multi-View Technical Generation (Front, Back, Side, Detail)
-app.post('/api/designer/multi-view', async (req: Request, res: Response) => {
+const handleMultiViewRoute = async (req: Request, res: Response) => {
   try {
-    const { candidateId, viewTypes } = req.body;
-    if (!candidateId || !viewTypes || !Array.isArray(viewTypes)) {
-      res.status(400).json({ error: 'candidateId and viewTypes array are required.' });
+    const candidateId = req.body.candidateId;
+    const rawViews = req.body.viewTypes || (req.body.view ? [req.body.view] : ['front', 'back', 'side', 'detail']);
+    const viewTypes = Array.isArray(rawViews) ? rawViews : [rawViews];
+
+    if (!candidateId) {
+      res.status(400).json({ error: 'candidateId is required.' });
       return;
     }
 
@@ -469,10 +510,80 @@ app.post('/api/designer/multi-view', async (req: Request, res: Response) => {
       viewTypes,
     });
 
-    res.json({ views });
+    res.json({
+      views,
+      imageUrl: req.body.view ? views[req.body.view] : undefined,
+    });
   } catch (err: any) {
+    if (err instanceof DesignSchemaValidationError) {
+      res.status(400).json({
+        error: err.message,
+        code: err.code,
+        emptyFields: err.emptyFields,
+        issues: err.issues,
+      });
+      return;
+    }
     res.status(500).json({ error: err.message || 'Multi-view generation failed.' });
   }
+};
+
+app.post('/api/designer/multi-view', handleMultiViewRoute);
+app.post('/api/designer/multi-views', handleMultiViewRoute);
+
+// 20. Dry-Run Spec Validation Endpoint
+app.post('/api/designer/validate-spec', (req: Request, res: Response) => {
+  const check = designSchemaValidator.validateGarmentDesignSpec(req.body.spec || req.body);
+  res.json(check);
+});
+
+// 21. ModaUI V8 Native Multimodal Conversational Orchestrator
+app.post('/api/chat/multimodal', async (req: Request, res: Response) => {
+  try {
+    const result = await executeMultimodalChat(req.body);
+    res.json(result);
+  } catch (err: any) {
+    console.error('Multimodal chat error:', err);
+    if (err instanceof DesignSchemaValidationError) {
+      res.status(400).json({
+        error: err.message,
+        code: err.code,
+        emptyFields: err.emptyFields,
+        issues: err.issues,
+      });
+      return;
+    }
+    res.status(500).json({ error: err.message || 'Multimodal orchestration failed.' });
+  }
+});
+
+// 22. ModaGPT Unified AI Command Center & Multi-Step Engine Orchestrator
+app.post('/api/modagpt/execute', async (req: Request, res: Response) => {
+  try {
+    const result = await taskOrchestrator.orchestrate(req.body);
+    res.json(result);
+  } catch (err: any) {
+    console.error('ModaGPT Orchestrator Error:', err);
+    if (err instanceof DesignSchemaValidationError) {
+      res.status(400).json({
+        error: err.message,
+        code: err.code,
+        emptyFields: err.emptyFields,
+        issues: err.issues,
+      });
+      return;
+    }
+    res.status(500).json({ error: err.message || 'Execution plan failed.' });
+  }
+});
+
+// 23. Unified Tool Registry Endpoints
+app.get('/api/modagpt/tools', (_req: Request, res: Response) => {
+  res.json(toolRegistry.listTools());
+});
+
+app.get('/api/modagpt/logs', (_req: Request, res: Response) => {
+  res.json(toolRegistry.getExecutionLogs());
 });
 
 // 20. List candidates and revision history
@@ -544,6 +655,47 @@ app.get('/api/benchmark/reports', (_req: Request, res: Response) => {
 
 app.get('/api/commercial/checklist', (_req: Request, res: Response) => {
   res.json(evaluationSystem.getCommercialChecklist());
+});
+
+// 25. System General Settings
+let systemSettings = {
+  defaultResolution: '2K',
+  autoEnhancePrompt: true,
+  defaultLanguage: 'zh',
+  routingPreference: 'hybrid',
+  maxRetries: 3,
+  strictNonTargetProtection: true,
+  storageQuotaMb: 500,
+  geminiModelImage: 'gemini-nano-banana-2.1',
+  geminiModelChat: 'gemini-3.8-flash',
+  veoModel: 'veo-3.1-fast-generate-preview',
+};
+
+app.get('/api/settings', (_req: Request, res: Response) => {
+  res.json(systemSettings);
+});
+
+app.post('/api/settings', (req: Request, res: Response) => {
+  systemSettings = { ...systemSettings, ...req.body };
+  res.json({ message: 'Settings saved successfully', settings: systemSettings });
+});
+
+// 26. System Health Check
+app.get('/api/health', (_req: Request, res: Response) => {
+  const mem = process.memoryUsage();
+  res.json({
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    uptimeSeconds: Math.floor((Date.now() - startTime) / 1000),
+    geminiConfigured: isGeminiConfigured,
+    memoryUsageMb: {
+      rss: Math.round(mem.rss / 1024 / 1024),
+      heapTotal: Math.round(mem.heapTotal / 1024 / 1024),
+      heapUsed: Math.round(mem.heapUsed / 1024 / 1024),
+    },
+    version: '8.0.0',
+    nodeVersion: process.version,
+  });
 });
 
 // ==========================================

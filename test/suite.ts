@@ -7,6 +7,9 @@ import { aiRoutingEngine } from '../server/core/aiRoutingEngine.ts';
 import { evaluationSystem } from '../server/core/evaluationSystem.ts';
 import { assetStore } from '../server/store/assetStore.ts';
 import { taskQueue } from '../server/store/taskQueue.ts';
+import { designSchemaValidator, DesignSchemaValidationError } from '../server/core/designSchemaValidator.ts';
+import { executeMultimodalChat } from '../server/ai/multimodalChatOrchestrator.ts';
+import { GarmentDesignSpec } from '../src/types/index.ts';
 
 let passed = 0;
 let failed = 0;
@@ -124,13 +127,143 @@ async function runTestSuite() {
   const deleted = assetStore.delete(testAsset.id);
   assert(deleted, 'User asset successfully deleted with isolation guarantee');
 
+  // Test 9: Design Workflow Schema Validation Layer
+  console.log('\n--- 9. Testing Design Schema Validation Layer (Anti-Empty & Anti-Default) ---');
+  // 9.1 Empty prompt check
+  const emptyPromptCheck = designSchemaValidator.validateUserPrompt('');
+  assert(!emptyPromptCheck.isValid, 'Rejects completely empty user prompt');
+  assert(emptyPromptCheck.emptyFields.includes('userMessage'), 'Identifies userMessage as empty field');
+
+  const whitespacePromptCheck = designSchemaValidator.validateUserPrompt('   ');
+  assert(!whitespacePromptCheck.isValid, 'Rejects whitespace-only prompt');
+
+  // 9.2 Incomplete spec with empty strings
+  const invalidSpec: Partial<GarmentDesignSpec> = {
+    garmentCategory: 'Wool Coat',
+    targetAudience: 'Women',
+    designStyle: 'Minimalist',
+    silhouette: '', // EMPTY VALUE
+    fabricAppearance: 'Cashmere',
+    primaryColor: '   ', // WHITESPACE EMPTY VALUE
+    hardConstraints: [], // EMPTY ARRAY
+    optionalPreferences: ['Horn buttons'],
+  };
+
+  const specValidation = designSchemaValidator.validateGarmentDesignSpec(invalidSpec, 'InvalidTestSpec');
+  assert(!specValidation.isValid, 'Schema validator intercepts spec with empty values');
+  assert(specValidation.emptyFields.includes('silhouette'), 'Flags empty silhouette string');
+  assert(specValidation.emptyFields.includes('primaryColor'), 'Flags whitespace-only primaryColor');
+  assert(specValidation.emptyFields.includes('hardConstraints'), 'Flags empty hardConstraints array');
+
+  // 9.3 Pre-AI Generation gatekeeper
+  let generationBlocked = false;
+  try {
+    designSchemaValidator.assertValidCandidateForGeneration({
+      prompt: 'Short', // Too brief
+      spec: invalidSpec as GarmentDesignSpec,
+    });
+  } catch (err: any) {
+    if (err instanceof DesignSchemaValidationError) {
+      generationBlocked = true;
+    }
+  }
+  assert(generationBlocked, 'assertValidCandidateForGeneration strictly blocks AI generation when empty values exist');
+
+  // 9.4 Valid spec passes
+  const validSpec: GarmentDesignSpec = {
+    garmentCategory: 'Luxury Wool Trench Coat',
+    targetAudience: 'Contemporary Womenswear',
+    designStyle: 'Milan Minimalist',
+    silhouette: 'Hourglass Belted Trench',
+    fabricAppearance: 'Double-Faced Loro Piana Wool',
+    primaryColor: 'Obsidian Black (#18181B)',
+    collarType: 'Wide Peak Lapel (意式宽戗驳领)',
+    hardConstraints: ['Color: Obsidian Black', 'Category: Luxury Wool Trench Coat'],
+    optionalPreferences: ['Horn button hardware'],
+  };
+  const validCheck = designSchemaValidator.validateGarmentDesignSpec(validSpec, 'ValidTestSpec');
+  assert(validCheck.isValid, 'Valid spec with complete non-empty values passes schema validation');
+
+  // 9.5 cleanUnspecifiedFields strips empty strings without overwriting unspecified fields
+  const partiallyEmpty = {
+    garmentCategory: 'Silk Blouse',
+    collarType: '   ',
+    pocketStyle: '',
+    primaryColor: 'Ivory White',
+  };
+  const cleaned = designSchemaValidator.cleanUnspecifiedFields(partiallyEmpty);
+  assert(cleaned.garmentCategory === 'Silk Blouse', 'Preserves valid fields');
+  assert(!('collarType' in cleaned), 'Strips empty whitespace-only collarType');
+  assert(!('pocketStyle' in cleaned), 'Strips empty string pocketStyle');
+
+  // Test 10: ModaUI V8 Native Multimodal Conversational Orchestrator
+  console.log('\n--- 10. Testing ModaUI V8 Multimodal Chat Orchestrator ---');
+  // 10.1 Garment design generation via natural language in chat
+  const designChatRes = await executeMultimodalChat({
+    message: '帮我设计一件意大利高端女装羊毛大衣，黑色修身廓形',
+  });
+  assert(designChatRes.intent === 'design', 'Correctly detects design intention from natural language');
+  assert(Boolean(designChatRes.imageResult?.url), 'Returns embedded synthesized image in conversational response');
+  assert(designChatRes.imageResult?.version === 1, 'Initial design marked as version 1');
+  assert(designChatRes.imageResult?.consistencyScore! >= 85, 'Image quality and spec verification passed threshold');
+
+  // 10.2 In-chat continuous revision preserving context & comparing previous version
+  const revisionChatRes = await executeMultimodalChat({
+    message: '领口改成翻领，腰身收紧，其他保持不变',
+    activeImageRef: {
+      imageUrl: designChatRes.imageResult!.url,
+      designSpec: designChatRes.imageResult!.spec,
+      candidateId: designChatRes.imageResult!.candidateId,
+      version: 1,
+    },
+  });
+  assert(revisionChatRes.intent === 'revision', 'Correctly detects continuous revision intent on active image');
+  assert(revisionChatRes.imageResult?.version === 2, 'Increments revision version to v2');
+  assert(revisionChatRes.imageResult?.previousImageUrl === designChatRes.imageResult!.url, 'Retains previous image for side-by-side comparison');
+  assert(Boolean(revisionChatRes.imageResult?.url), 'Returns revised image without page navigation');
+
+  // 10.3 General sartorial Q&A without unintended image generation
+  const qaChatRes = await executeMultimodalChat({
+    message: '什么是意式那不勒斯西装的平驳领特点？',
+  });
+  assert(qaChatRes.intent === 'qa', 'Correctly categorizes styling question as qa intent');
+  assert(!qaChatRes.imageResult, 'Does not mistakenly generate images for standard Q&A questions');
+  assert(qaChatRes.assistantResponse.length > 20, 'Returns professional couturier advice');
+
+  // 10.4 Empty input rejection in chat
+  let chatValidationRejected = false;
+  try {
+    await executeMultimodalChat({ message: '   ' });
+  } catch (err: any) {
+    if (err instanceof DesignSchemaValidationError) {
+      chatValidationRejected = true;
+    }
+  }
+  assert(chatValidationRejected, 'Rejects empty messages in multimodal orchestrator with validation error');
+
+  // Test 11: Unified Tool Registry & 5 Core Engines
+  console.log('\n--- 11. Testing Unified Tool Registry & 5 Core Creation Tools ---');
+  const { toolRegistry } = await import('../server/core/toolRegistry.ts');
+  const registeredTools = toolRegistry.listTools();
+  assert(registeredTools.length >= 5, 'Tool Registry contains all unified creation tools');
+  
+  const toolIds = registeredTools.map((t) => t.id);
+  assert(toolIds.includes('fashion_designer_create'), 'Fashion design generator registered');
+  assert(toolIds.includes('fashion_designer_revise'), 'Continuous revision engine registered');
+  assert(toolIds.includes('virtual_try_on'), 'Virtual try-on engine registered');
+  assert(toolIds.includes('precision_recolor'), 'Precision recolor engine registered');
+  assert(toolIds.includes('runway_video_veo'), 'Veo runway video engine registered');
+
   console.log('\n======================================================');
   console.log(`  TEST RESULTS: ${passed} PASSED, ${failed} FAILED`);
   console.log('======================================================\n');
 
   if (failed > 0) {
     process.exit(1);
+  } else {
+    process.exit(0);
   }
 }
 
 runTestSuite();
+

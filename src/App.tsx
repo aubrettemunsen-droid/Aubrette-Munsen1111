@@ -1,253 +1,209 @@
 import React, { useState, useEffect } from 'react';
 import { AssetRecord, TabType } from './types/index.ts';
-import { Header } from './components/Header.tsx';
-import { VirtualTryOnTab } from './components/VirtualTryOnTab.tsx';
-import { ModelShootTab } from './components/ModelShootTab.tsx';
-import { RecolorTab } from './components/RecolorTab.tsx';
+import { Sidebar } from './components/Sidebar.tsx';
+import { HomeView } from './components/HomeView.tsx';
+import { ModaUIChatWorkbench } from './components/ModaUIChatWorkbench.tsx';
+import { AssetLibraryView } from './components/AssetLibraryView.tsx';
+import { SettingsView } from './components/SettingsView.tsx';
 import { GarmentIntelligenceModal } from './components/GarmentIntelligenceModal.tsx';
 import { VideoRunwayModal } from './components/VideoRunwayModal.tsx';
-import { TaskHistoryDrawer } from './components/TaskHistoryDrawer.tsx';
-import { FashionDesignerTab } from './components/FashionDesignerTab.tsx';
-import { EngineHubTab } from './components/EngineHubTab.tsx';
-
-// Fallback benchmark paths matching our generated files
-import benchmarkPersonImg from './assets/images/test_person_model_1792284592530.jpg';
-import benchmarkBlazerImg from './assets/images/test_garment_blazer_1792284593019.jpg';
-import benchmarkSilkImg from './assets/images/test_garment_silk_jacket_1792284594069.jpg';
-import benchmarkSweaterImg from './assets/images/test_garment_knit_sweater_1792284594426.jpg';
 import { useLanguage } from './context/LanguageContext.tsx';
-
+import { Menu, Sparkles } from 'lucide-react';
 
 export default function App() {
-  const { strings } = useLanguage();
-  const [activeTab, setActiveTab] = useState<TabType>('try_on');
-  const [benchmarkAssets, setBenchmarkAssets] = useState<AssetRecord[]>([]);
+  const { language, strings } = useLanguage();
+  const [activeTab, setActiveTab] = useState<TabType>('home');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [prefilledPrompt, setPrefilledPrompt] = useState<string>('');
 
-  // Modals state
+  // Modals state (triggered from chat or asset operations)
   const [isIntelligenceOpen, setIsIntelligenceOpen] = useState(false);
   const [isVideoOpen, setIsVideoOpen] = useState(false);
   const [modalTargetImage, setModalTargetImage] = useState<string | undefined>(undefined);
 
-  // Asset handover state (e.g. passing a Try-on result into Recolor tab)
-  const [handoverAsset, setHandoverAsset] = useState<AssetRecord | null>(null);
+  // Active tasks count
+  const [activeTasksCount, setActiveTasksCount] = useState<number>(0);
 
-  // Active tasks tracking
-  const [activeTasks, setActiveTasks] = useState<string[]>([]);
-
-  // Fetch benchmark assets on mount
+  // Periodic poll of active tasks count for sidebar indicator
   useEffect(() => {
-    fetch('/api/benchmark-assets')
-      .then((res) => (res.ok ? res.json() : []))
-      .then((data: AssetRecord[]) => {
-        if (data && data.length > 0) {
-          setBenchmarkAssets(data);
-        } else {
-          // Fallback to imported benchmark assets
-          const fallbacks: AssetRecord[] = [
-            {
-              id: 'benchmark_person_model',
-              name: 'Benchmark Studio Model',
-              mimeType: 'image/jpeg',
-              dataUrl: benchmarkPersonImg,
-              category: 'person',
-              createdAt: Date.now(),
-            },
-            {
-              id: 'benchmark_garment_blazer',
-              name: 'Benchmark Tailored Wool Blazer',
-              mimeType: 'image/jpeg',
-              dataUrl: benchmarkBlazerImg,
-              category: 'garment',
-              createdAt: Date.now(),
-            },
-            {
-              id: 'benchmark_garment_silk_jacket',
-              name: 'Benchmark Cream Silk Bomber',
-              mimeType: 'image/jpeg',
-              dataUrl: benchmarkSilkImg,
-              category: 'garment',
-              createdAt: Date.now(),
-            },
-            {
-              id: 'benchmark_garment_knit_sweater',
-              name: 'Benchmark Cobalt Cable-Knit Sweater',
-              mimeType: 'image/jpeg',
-              dataUrl: benchmarkSweaterImg,
-              category: 'garment',
-              createdAt: Date.now(),
-            },
-          ];
-          setBenchmarkAssets(fallbacks);
+    const fetchStatus = async () => {
+      try {
+        const res = await fetch('/api/system/status');
+        if (res.ok) {
+          const data = await res.json();
+          setActiveTasksCount(data.activeTasks || 0);
         }
-      })
-      .catch(() => {
-        const fallbacks: AssetRecord[] = [
-          {
-            id: 'benchmark_person_model',
-            name: 'Benchmark Studio Model',
-            mimeType: 'image/jpeg',
-            dataUrl: benchmarkPersonImg,
-            category: 'person',
-            createdAt: Date.now(),
-          },
-          {
-            id: 'benchmark_garment_blazer',
-            name: 'Benchmark Tailored Wool Blazer',
-            mimeType: 'image/jpeg',
-            dataUrl: benchmarkBlazerImg,
-            category: 'garment',
-            createdAt: Date.now(),
-          },
-          {
-            id: 'benchmark_garment_silk_jacket',
-            name: 'Benchmark Cream Silk Bomber',
-            mimeType: 'image/jpeg',
-            dataUrl: benchmarkSilkImg,
-            category: 'garment',
-            createdAt: Date.now(),
-          },
-          {
-            id: 'benchmark_garment_knit_sweater',
-            name: 'Benchmark Cobalt Cable-Knit Sweater',
-            mimeType: 'image/jpeg',
-            dataUrl: benchmarkSweaterImg,
-            category: 'garment',
-            createdAt: Date.now(),
-          },
-        ];
-        setBenchmarkAssets(fallbacks);
-      });
+      } catch (e) {
+        // Silent poll error handling
+      }
+    };
+    fetchStatus();
+    const interval = setInterval(fetchStatus, 8000);
+    return () => clearInterval(interval);
   }, []);
 
   const handleOpenIntelligence = (dataUrl?: string) => {
-    setModalTargetImage(dataUrl || benchmarkAssets[1]?.dataUrl);
+    setModalTargetImage(dataUrl);
     setIsIntelligenceOpen(true);
   };
 
   const handleOpenVideo = (dataUrl?: string) => {
-    setModalTargetImage(dataUrl || benchmarkAssets[0]?.dataUrl);
+    setModalTargetImage(dataUrl);
     setIsVideoOpen(true);
   };
 
-  const handleTaskCreated = (taskId: string) => {
-    setActiveTasks((prev) => [...prev, taskId]);
+  const handleLaunchCreatorWithPrompt = (prompt?: string) => {
+    if (prompt) {
+      setPrefilledPrompt(prompt);
+    }
+    setActiveTab('creator');
   };
 
-  const handleNavigateToRecolor = (asset: AssetRecord) => {
-    setHandoverAsset(asset);
-    setActiveTab('recolor');
+  const handleSendAssetToCreator = (asset: AssetRecord) => {
+    setPrefilledPrompt(
+      language === 'zh'
+        ? `以此高定素材（${asset.name}）为基础，生成电商模特上身试衣图并保持面料光泽`
+        : `Using this garment asset (${asset.name}), generate commercial model lookbook preserving fabric drape`
+    );
+    setActiveTab('creator');
   };
 
-  const handleNavigateToTryOn = (garment: AssetRecord) => {
-    setActiveTab('try_on');
-  };
-
-  const handleDesignerSendToTryOn = (garment: any) => {
-    setBenchmarkAssets((prev) => [garment, ...prev.filter((p) => p.id !== garment.id)]);
-    setActiveTab('try_on');
-  };
-
-  const handleDesignerSendToModelShoot = (garment: any) => {
-    setBenchmarkAssets((prev) => [garment, ...prev.filter((p) => p.id !== garment.id)]);
-    setActiveTab('model_shoot');
-  };
-
-  const handleDesignerSendToRecolor = (garment: any) => {
-    setHandoverAsset(garment);
-    setActiveTab('recolor');
+  // Title lookup
+  const getHeaderTitle = () => {
+    switch (activeTab) {
+      case 'home':
+        return language === 'zh' ? '首页工作台' : 'Home Overview';
+      case 'creator':
+      case 'chat':
+      case 'designer':
+      case 'try_on':
+      case 'model_shoot':
+      case 'recolor':
+        return language === 'zh' ? 'AI 创作中心' : 'AI Creation Center';
+      case 'assets':
+        return language === 'zh' ? '素材与成果库' : 'Asset Library';
+      case 'settings':
+        return language === 'zh' ? '总设置' : 'Settings';
+      default:
+        return 'ModaGPT';
+    }
   };
 
   return (
-    <div className="min-h-screen bg-stone-100 text-stone-900 font-sans selection:bg-stone-900 selection:text-white flex flex-col">
-      {/* 3-Zone Top Bar Navigation */}
-      <Header
+    <div className="min-h-screen bg-stone-100 text-stone-900 font-sans selection:bg-stone-900 selection:text-white flex">
+      {/* 1. Left Main Navigation Sidebar (4 entries only) */}
+      <Sidebar
         activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        onOpenIntelligence={() => handleOpenIntelligence()}
-        onOpenVideoModal={() => handleOpenVideo()}
-        activeTasksCount={activeTasks.length}
+        setActiveTab={(tab) => {
+          setActiveTab(tab);
+          setIsSidebarOpen(false);
+        }}
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
+        activeTasksCount={activeTasksCount}
       />
 
-      {/* Main Workspace Frame */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-6 py-8">
-        {activeTab === 'designer' && (
-          <FashionDesignerTab
-            onSendToTryOn={handleDesignerSendToTryOn}
-            onSendToModelShoot={handleDesignerSendToModelShoot}
-            onSendToRecolor={handleDesignerSendToRecolor}
-            onOpenVideoModal={handleOpenVideo}
-          />
-        )}
+      {/* 2. Main Content Area */}
+      <div className="flex-1 flex flex-col min-w-0 min-h-screen">
+        {/* Mobile & Tablet Header Bar */}
+        <header className="sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-stone-200/80 px-4 sm:px-6 py-3.5 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setIsSidebarOpen(true)}
+              className="p-1.5 text-stone-600 hover:text-stone-900 rounded-lg hover:bg-stone-100 md:hidden"
+              aria-label="Open navigation menu"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+            <div>
+              <h1 className="text-base sm:text-lg font-serif font-bold text-stone-900 tracking-tight">
+                {getHeaderTitle()}
+              </h1>
+              <div className="text-[11px] font-mono text-stone-400 hidden sm:block">
+                ModaGPT V8 · {language === 'zh' ? '统一时装智能创作引擎' : 'Unified Haute Couture AI'}
+              </div>
+            </div>
+          </div>
 
-        {activeTab === 'try_on' && (
-          <VirtualTryOnTab
-            benchmarkAssets={benchmarkAssets}
-            onNavigateToRecolor={handleNavigateToRecolor}
-            onOpenVideoModal={handleOpenVideo}
-            onOpenAnalysis={handleOpenIntelligence}
-            onTaskCreated={handleTaskCreated}
-          />
-        )}
+          <div className="flex items-center gap-2">
+            {activeTab !== 'creator' && (
+              <button
+                type="button"
+                onClick={() => setActiveTab('creator')}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-stone-900 text-white text-xs font-medium hover:bg-stone-800 transition shadow-2xs"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">
+                  {language === 'zh' ? '进入创作中心' : 'Open Creator'}
+                </span>
+              </button>
+            )}
+          </div>
+        </header>
 
-        {activeTab === 'model_shoot' && (
-          <ModelShootTab
-            benchmarkAssets={benchmarkAssets}
-            onNavigateToTryOn={handleNavigateToTryOn}
-            onOpenVideoModal={handleOpenVideo}
-            onOpenAnalysis={handleOpenIntelligence}
-            onTaskCreated={handleTaskCreated}
-          />
-        )}
+        {/* 3. Primary Workspace Views */}
+        <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto flex flex-col">
+          {activeTab === 'home' && (
+            <HomeView
+              onNavigateToCreator={handleLaunchCreatorWithPrompt}
+              onNavigateToAssets={() => setActiveTab('assets')}
+              onNavigateToSettings={() => setActiveTab('settings')}
+              onOpenVideoModal={handleOpenVideo}
+            />
+          )}
 
-        {activeTab === 'recolor' && (
-          <RecolorTab
-            benchmarkAssets={benchmarkAssets}
-            initialAsset={handoverAsset}
-            onNavigateToTryOn={handleNavigateToTryOn}
-            onOpenVideoModal={handleOpenVideo}
-            onOpenAnalysis={handleOpenIntelligence}
-            onTaskCreated={handleTaskCreated}
-          />
-        )}
+          {(activeTab === 'creator' ||
+            activeTab === 'chat' ||
+            activeTab === 'designer' ||
+            activeTab === 'try_on' ||
+            activeTab === 'model_shoot' ||
+            activeTab === 'recolor') && (
+            <ModaUIChatWorkbench
+              onOpenVideoModal={handleOpenVideo}
+              onOpenAnalysisModal={handleOpenIntelligence}
+              initialPrompt={prefilledPrompt}
+              onClearInitialPrompt={() => setPrefilledPrompt('')}
+            />
+          )}
 
-        {activeTab === 'engine_hub' && (
-          <EngineHubTab />
-        )}
+          {activeTab === 'assets' && (
+            <AssetLibraryView
+              onSendToCreator={handleSendAssetToCreator}
+              onOpenVideoModal={handleOpenVideo}
+            />
+          )}
 
-        {activeTab === 'history' && (
-          <TaskHistoryDrawer />
-        )}
-      </main>
+          {activeTab === 'settings' && <SettingsView />}
+        </main>
 
-      {/* Fabric Intelligence Modal (Gemini 4 Argon High Thinking) */}
+        {/* 4. Production Footer */}
+        <footer className="border-t border-stone-200 bg-white py-4 px-6 mt-auto">
+          <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2 text-xs font-mono text-stone-400">
+            <div>
+              <span>ModaGPT Haute Couture AI</span>
+              <span className="mx-2">·</span>
+              <span>{language === 'zh' ? '统一命令调度与高定生成' : 'Unified Multimodal Creative Architecture'}</span>
+            </div>
+            <div>
+              <span>{language === 'zh' ? '纯净工程级体验' : 'SaaS Engineering Grade'}</span>
+            </div>
+          </div>
+        </footer>
+      </div>
+
+      {/* Multimodal Modals for Video and Deep Analysis (Triggered on demand) */}
       <GarmentIntelligenceModal
         isOpen={isIntelligenceOpen}
         onClose={() => setIsIntelligenceOpen(false)}
         initialImageDataUrl={modalTargetImage}
       />
 
-      {/* Runway Video Modal (Veo 3.1) */}
       <VideoRunwayModal
         isOpen={isVideoOpen}
         onClose={() => setIsVideoOpen(false)}
         initialImageDataUrl={modalTargetImage}
       />
-
-      {/* Subtle Production Footer */}
-      <footer className="border-t border-stone-200 bg-white py-6 mt-auto">
-        <div className="max-w-7xl mx-auto px-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs font-mono text-stone-500">
-          <div>
-            <span>{strings.footer.brand}</span>
-            <span aria-hidden="true" className="mx-2">·</span>
-            <span>{strings.footer.subtext}</span>
-          </div>
-          <div className="flex items-center gap-4">
-            <span>{strings.footer.identityPreservation}</span>
-            <span aria-hidden="true">·</span>
-            <span>{strings.footer.luminanceLocked}</span>
-          </div>
-        </div>
-      </footer>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-export type TabType = 'designer' | 'try_on' | 'model_shoot' | 'recolor' | 'engine_hub' | 'history';
+export type TabType = 'home' | 'creator' | 'assets' | 'settings' | 'chat' | 'designer' | 'try_on' | 'model_shoot' | 'recolor' | 'engine_hub' | 'history';
 
 export interface AssetRecord {
   id: string;
@@ -172,6 +172,66 @@ export interface ChatMessage {
   suggestedRevisions?: string[];
   conflictNotice?: string;
   candidateIds?: string[];
+}
+
+export interface ChatGeneratedImage {
+  url: string;
+  prompt?: string;
+  spec?: GarmentDesignSpec;
+  candidateId?: string;
+  version: number;
+  consistencyScore?: number;
+  verificationPassed?: boolean;
+  auditNotes?: string[];
+  previousImageUrl?: string;
+  actionType: 'design' | 'revision' | 'recolor' | 'try_on' | 'analysis' | 'video';
+}
+
+export interface ChatMessageRecord {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: number;
+  status?: 'sending' | 'thinking' | 'generating' | 'completed' | 'error';
+  attachments?: Array<{
+    id: string;
+    name: string;
+    mimeType: string;
+    dataUrl: string;
+  }>;
+  generatedImage?: ChatGeneratedImage;
+  suggestedNextPrompts?: string[];
+  error?: string;
+}
+
+export interface MultimodalChatRequest {
+  message: string;
+  conversationHistory?: Array<{
+    role: 'user' | 'assistant';
+    content: string;
+    generatedImage?: ChatGeneratedImage;
+  }>;
+  activeImageRef?: {
+    imageUrl: string;
+    designSpec?: GarmentDesignSpec;
+    candidateId?: string;
+    version?: number;
+  };
+  attachments?: Array<{
+    id?: string;
+    name: string;
+    mimeType: string;
+    dataUrl: string;
+  }>;
+}
+
+export interface MultimodalChatResponse {
+  assistantResponse: string;
+  intent: 'design' | 'revision' | 'recolor' | 'try_on' | 'analysis' | 'video' | 'qa';
+  imageResult?: ChatGeneratedImage;
+  suggestedNextPrompts: string[];
+  status: 'completed' | 'error';
+  error?: string;
 }
 
 // ==========================================
